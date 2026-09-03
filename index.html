@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta
+      name="description"
+      content="Gemeinsamer Familienkalender zur Reservierung von BMW, Nissan und Wohnmobil."
+    />
+    <title>Familiengarage</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap"
+      rel="stylesheet"
+    />
+    <link href="./style.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: { sans: ['DM Sans', 'ui-sans-serif', 'system-ui'] },
+            colors: { ink: '#0f172a', skybrand: '#0f5bd7' },
+          },
+        },
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+    <script src="./config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./supabaseClient.js"></script>
+    <script defer src="./app.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-100 font-sans text-slate-900 antialiased">
+    <main class="mx-auto min-h-screen max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <header class="mb-5 flex items-center justify-between gap-3 sm:mb-7">
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-ink text-xl shadow-lg shadow-slate-900/15" aria-hidden="true">🚗</div>
+          <div class="min-w-0">
+            <h1 class="truncate text-xl font-bold tracking-tight text-ink sm:text-2xl">Familiengarage</h1>
+            <p id="sync-status" class="mt-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-500" aria-live="polite">
+              <span class="status-dot bg-slate-400"></span>
+              Verbindung wird vorbereitet
+            </p>
+          </div>
+        </div>
+        <button id="new-reservation" class="action-button shrink-0" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
+          <span class="hidden xs:inline">Reservieren</span><span class="xs:hidden">Neu</span>
+        </button>
+      </header>
+
+      <section id="setup-notice" class="mb-5 hidden rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+        <div class="flex gap-3">
+          <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke-linecap="round" /></svg>
+          <p><strong>Lokaler Testmodus.</strong> Die Reservierungen werden nur auf diesem Gerät gespeichert. Für den gemeinsamen Kalender bitte die beiden Werte in <code>config.js</code> eintragen.</p>
+        </div>
+      </section>
+
+      <section class="mb-5 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:flex sm:items-end sm:justify-between sm:gap-5 sm:p-5" aria-label="Kalenderfilter">
+        <div class="grid gap-3 sm:grid-cols-2 sm:gap-4">
+          <label class="field-label" for="filter-car">Fahrzeug
+            <select id="filter-car" class="field-control mt-1.5">
+              <option value="">Alle Fahrzeuge</option>
+            </select>
+          </label>
+          <label class="field-label" for="filter-person">Person
+            <select id="filter-person" class="field-control mt-1.5">
+              <option value="">Alle Personen</option>
+            </select>
+          </label>
+        </div>
+        <div class="mt-4 flex items-center justify-between gap-3 sm:mt-0 sm:justify-end">
+          <div class="flex rounded-xl bg-slate-100 p-1" role="group" aria-label="Kalenderansicht">
+            <button class="view-button is-active" type="button" data-view="dayGridMonth" aria-pressed="true">Monat</button>
+            <button class="view-button" type="button" data-view="timeGridWeek" aria-pressed="false">Woche</button>
+          </div>
+          <button id="today-button" type="button" class="text-button">Heute</button>
+        </div>
+      </section>
+
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_245px]">
+        <section class="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200" aria-label="Reservierungskalender">
+          <div class="calendar-titlebar flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-3 sm:px-5">
+            <button id="previous-period" class="icon-button" type="button" aria-label="Vorheriger Zeitraum">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m15 18-6-6 6-6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+            <h2 id="calendar-title" class="text-center text-base font-bold capitalize text-ink sm:text-lg"></h2>
+            <button id="next-period" class="icon-button" type="button" aria-label="Nächster Zeitraum">
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m9 18 6-6-6-6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+            </button>
+          </div>
+          <div id="calendar" class="p-2 sm:p-4"></div>
+          <p id="empty-state" class="mx-4 mb-4 hidden rounded-xl bg-slate-50 px-4 py-3 text-center text-sm text-slate-500 sm:mx-5">Für diese Auswahl gibt es keine Reservierungen.</p>
+        </section>
+
+        <aside class="space-y-4" aria-label="Fahrzeugübersicht">
+          <section class="rounded-2xl bg-ink p-5 text-white shadow-lg shadow-slate-900/10">
+            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-sky-200">Fahrzeuge</p>
+            <ul id="car-legend" class="mt-4 space-y-3"></ul>
+          </section>
+          <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
+            <h2 class="text-sm font-bold text-ink">Schnell erklärt</h2>
+            <p class="mt-2 text-sm leading-6 text-slate-600">Tippe auf einen Kalendertag oder auf „Reservieren“. Bereits belegte Zeiträume eines Fahrzeugs können nicht doppelt vergeben werden.</p>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <dialog id="booking-dialog" class="booking-dialog w-[calc(100%-2rem)] max-w-lg rounded-3xl bg-white p-0 shadow-2xl backdrop:bg-slate-950/45" aria-labelledby="booking-heading">
+      <form id="booking-form" class="max-h-[calc(100vh-2rem)] overflow-y-auto p-5 sm:p-7" novalidate>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-[0.14em] text-skybrand">Neue Buchung</p>
+            <h2 id="booking-heading" class="mt-1 text-2xl font-bold tracking-tight text-ink">Fahrzeug reservieren</h2>
+          </div>
+          <button id="close-booking" class="icon-button" type="button" aria-label="Buchungsfenster schließen">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round" /></svg>
+          </button>
+        </div>
+
+        <div class="mt-6 grid gap-4">
+          <label class="field-label" for="reservation-car">Fahrzeug <span aria-hidden="true">*</span>
+            <select id="reservation-car" name="car" class="field-control mt-1.5" required></select>
+          </label>
+          <label class="field-label" for="reservation-person">Reserviert von <span aria-hidden="true">*</span>
+            <select id="reservation-person" name="person" class="field-control mt-1.5" required></select>
+          </label>
+          <label class="inline-flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300" for="all-day">
+            <input id="all-day" name="allDay" class="h-5 w-5 rounded border-slate-300 text-skybrand focus:ring-skybrand" type="checkbox" />
+            Ganztägig reservieren
+          </label>
+          <div id="timed-fields" class="grid gap-4 sm:grid-cols-2">
+            <label class="field-label" for="start-datetime">Beginn <span aria-hidden="true">*</span>
+              <input id="start-datetime" name="startDateTime" class="field-control mt-1.5" type="datetime-local" required />
+            </label>
+            <label class="field-label" for="end-datetime">Ende <span aria-hidden="true">*</span>
+              <input id="end-datetime" name="endDateTime" class="field-control mt-1.5" type="datetime-local" required />
+            </label>
+          </div>
+          <div id="all-day-fields" class="hidden grid gap-4 sm:grid-cols-2">
+            <label class="field-label" for="start-date">Erster Tag <span aria-hidden="true">*</span>
+              <input id="start-date" name="startDate" class="field-control mt-1.5" type="date" />
+            </label>
+            <label class="field-label" for="end-date">Letzter Tag <span aria-hidden="true">*</span>
+              <input id="end-date" name="endDate" class="field-control mt-1.5" type="date" />
+            </label>
+          </div>
+          <label class="field-label" for="reservation-notes">Notiz <span class="font-normal text-slate-400">(optional)</span>
+            <textarea id="reservation-notes" name="notes" class="field-control mt-1.5 min-h-24 resize-y" maxlength="280" placeholder="z. B. Fahrt nach Oldenburg"></textarea>
+          </label>
+          <p id="form-message" class="hidden rounded-xl px-3 py-2.5 text-sm font-medium" role="alert" aria-live="assertive"></p>
+        </div>
+        <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button id="cancel-booking" class="secondary-button" type="button">Abbrechen</button>
+          <button id="save-reservation" class="action-button justify-center" type="submit">Reservierung speichern</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="reservation-dialog" class="booking-dialog w-[calc(100%-2rem)] max-w-md rounded-3xl bg-white p-0 shadow-2xl backdrop:bg-slate-950/45" aria-labelledby="reservation-heading">
+      <div class="p-5 sm:p-7">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p id="detail-car" class="text-xs font-semibold uppercase tracking-[0.14em] text-skybrand"></p>
+            <h2 id="reservation-heading" class="mt-1 text-2xl font-bold tracking-tight text-ink"></h2>
+          </div>
+          <button id="close-details" class="icon-button" type="button" aria-label="Details schließen">
+            <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25"><path d="m6 6 12 12M18 6 6 18" stroke-linecap="round" /></svg>
+          </button>
+        </div>
+        <dl class="mt-6 space-y-4 text-sm">
+          <div><dt class="detail-label">Zeitraum</dt><dd id="detail-time" class="mt-1 font-medium text-slate-800"></dd></div>
+          <div id="detail-notes-group"><dt class="detail-label">Notiz</dt><dd id="detail-notes" class="mt-1 whitespace-pre-wrap leading-6 text-slate-700"></dd></div>
+        </dl>
+        <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+          <button id="delete-reservation" class="danger-button" type="button">Reservierung löschen</button>
+          <button id="close-details-secondary" class="secondary-button" type="button">Schließen</button>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toast" class="pointer-events-none fixed inset-x-4 bottom-5 z-50 mx-auto hidden w-fit max-w-[calc(100%-2rem)] rounded-xl bg-ink px-4 py-3 text-sm font-medium text-white shadow-xl" role="status" aria-live="polite"></div>
+  </body>
+</html>
