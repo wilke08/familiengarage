@@ -42,9 +42,7 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Website-Dateien vorbereiten
-        run: |
-          mkdir -p _site
-          cp index.html app.js auth.js config.js supabaseClient.js style.css _site/
+        run: node scripts/prepare-site.mjs
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v4
         with:
