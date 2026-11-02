@@ -2,6 +2,8 @@
 
 Ein gemeinsamer, passwortgeschützter Kalender für **BMW 320d**, **Nissan Townstar** und **Dethleffs Just 90**. Die HTML/JavaScript-SPA läuft ohne Build-Schritt auf GitHub Pages. Nach der Anmeldung werden Änderungen über Supabase alle fünf Sekunden abgeglichen, solange der Tab sichtbar ist.
 
+Die eigene Adresse ist [autos.wilkezimmermann.de](https://autos.wilkezimmermann.de/). Die Subdomain verweist per CNAME auf `wilke08.github.io`; die Zuordnung zur Familiengarage ist in GitHub Pages hinterlegt. HTTPS wird von GitHub bereitgestellt. Die Hauptdomain und andere Subdomains werden dafür nicht geändert.
+
 ## Bereit zur Veröffentlichung
 
 `config.js` enthält die öffentliche Supabase-Projektkonfiguration. Vor der Veröffentlichung müssen das aktuelle `schema.sql` und die separate Passwort-Einrichtung in Supabase ausgeführt werden. Die Website bleibt bis zur erfolgreichen serverseitigen Anmeldung gesperrt.

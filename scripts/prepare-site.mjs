@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 
-const files = ['index.html', 'app.js', 'auth.js', 'config.js', 'supabaseClient.js', 'style.css'];
+const files = ['index.html', 'app.js', 'auth.js', 'config.js', 'supabaseClient.js', 'style.css', 'CNAME'];
 const revision = process.env.GITHUB_SHA || 'local';
 await mkdir('_site', { recursive: true });
 for (const file of files) await copyFile(file, `_site/${file}`);
