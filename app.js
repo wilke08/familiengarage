@@ -91,6 +91,9 @@ function initializeReservationPickers() {
     static: true,
     disableMobile: true,
     locale: window.flatpickr.l10ns.de,
+    onOpen: (_dates, _value, picker) => {
+      window.requestAnimationFrame(() => picker.calendarContainer.scrollIntoView({ block: 'nearest' }));
+    },
     onChange: () => validateReservationTiming(),
   };
   reservationPickers = {
