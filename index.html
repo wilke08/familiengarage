@@ -15,8 +15,9 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap"
       rel="stylesheet"
     />
+    <link href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css" rel="stylesheet" />
     <link href="./style.css" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
     <script>
       tailwind.config = {
         theme: {
@@ -28,13 +29,32 @@
       };
     </script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/l10n/de.js"></script>
     <script src="./config.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0"></script>
     <script src="./supabaseClient.js"></script>
+    <script defer src="./auth.js"></script>
     <script defer src="./app.js"></script>
   </head>
   <body class="min-h-screen bg-slate-100 font-sans text-slate-900 antialiased">
-    <main class="mx-auto min-h-screen max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+    <section id="login-screen" class="login-screen" aria-labelledby="login-heading">
+      <div class="login-card">
+        <div class="login-icon" aria-hidden="true">🚗</div>
+        <p class="login-eyebrow">Nur für die Familie</p>
+        <h1 id="login-heading">Willkommen in der Familiengarage</h1>
+        <p class="login-description">Mit eurem gemeinsamen Passwort öffnest du den Fahrzeugkalender.</p>
+        <form id="login-form">
+          <label class="field-label" for="family-password">Familienpasswort</label>
+          <input id="family-password" class="field-control mt-1.5" type="password" name="password" autocomplete="current-password" maxlength="72" required aria-describedby="login-message" />
+          <p id="login-message" class="login-message" role="alert" hidden></p>
+          <button id="login-submit" class="action-button" type="submit">Kalender öffnen</button>
+        </form>
+        <p class="login-footer">Euer Kalender. Eure drei Fahrzeuge.</p>
+      </div>
+    </section>
+    <noscript><p class="login-message">Bitte aktiviere JavaScript, um dich sicher anzumelden.</p></noscript>
+    <main id="family-app" hidden class="mx-auto min-h-screen max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
       <header class="mb-5 flex items-center justify-between gap-3 sm:mb-7">
         <div class="flex min-w-0 items-center gap-3">
           <div class="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-ink text-xl shadow-lg shadow-slate-900/15" aria-hidden="true">🚗</div>
@@ -46,18 +66,14 @@
             </p>
           </div>
         </div>
-        <button id="new-reservation" class="action-button shrink-0" type="button">
+        <div class="flex shrink-0 items-center gap-2">
+        <button id="logout-button" class="text-button" type="button">Abmelden</button>
+        <button id="new-reservation" class="action-button shrink-0" type="button" aria-label="Neue Reservierung erstellen">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14" stroke-linecap="round" /></svg>
-          <span class="hidden xs:inline">Reservieren</span><span class="xs:hidden">Neu</span>
+          <span class="button-label-wide">Reservieren</span><span class="button-label-compact">Neu</span>
         </button>
-      </header>
-
-      <section id="setup-notice" class="mb-5 hidden rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
-        <div class="flex gap-3">
-          <svg class="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.3 3.9 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke-linecap="round" /></svg>
-          <p><strong>Lokaler Testmodus.</strong> Die Reservierungen werden nur auf diesem Gerät gespeichert. Für den gemeinsamen Kalender bitte die beiden Werte in <code>config.js</code> eintragen.</p>
         </div>
-      </section>
+      </header>
 
       <section class="mb-5 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 sm:flex sm:items-end sm:justify-between sm:gap-5 sm:p-5" aria-label="Kalenderfilter">
         <div class="grid gap-3 sm:grid-cols-2 sm:gap-4">
@@ -75,7 +91,7 @@
         <div class="mt-4 flex items-center justify-between gap-3 sm:mt-0 sm:justify-end">
           <div class="flex rounded-xl bg-slate-100 p-1" role="group" aria-label="Kalenderansicht">
             <button class="view-button is-active" type="button" data-view="dayGridMonth" aria-pressed="true">Monat</button>
-            <button class="view-button" type="button" data-view="timeGridWeek" aria-pressed="false">Woche</button>
+            <button class="view-button" type="button" data-view="timeGridWeek" aria-pressed="false" aria-label="Wochenansicht, auf Mobilgeräten Tagesansicht"><span class="week-label-wide">Woche</span><span class="week-label-compact">Tag</span></button>
           </div>
           <button id="today-button" type="button" class="text-button">Heute</button>
         </div>
@@ -134,20 +150,22 @@
           </label>
           <div id="timed-fields" class="grid gap-4 sm:grid-cols-2">
             <label class="field-label" for="start-datetime">Beginn <span aria-hidden="true">*</span>
-              <input id="start-datetime" name="startDateTime" class="field-control mt-1.5" type="datetime-local" required />
+              <input id="start-datetime" name="startDateTime" class="field-control picker-input mt-1.5" type="text" inputmode="numeric" autocomplete="off" placeholder="Datum und Uhrzeit auswählen" aria-describedby="datetime-format-hint" aria-label="Beginn auswählen: Datum und Uhrzeit" required />
             </label>
             <label class="field-label" for="end-datetime">Ende <span aria-hidden="true">*</span>
-              <input id="end-datetime" name="endDateTime" class="field-control mt-1.5" type="datetime-local" required />
+              <input id="end-datetime" name="endDateTime" class="field-control picker-input mt-1.5" type="text" inputmode="numeric" autocomplete="off" placeholder="Datum und Uhrzeit auswählen" aria-describedby="datetime-format-hint" aria-label="Ende auswählen: Datum und Uhrzeit" required />
             </label>
           </div>
+          <p id="datetime-format-hint" class="-mt-2 text-xs font-medium text-slate-500">Antippen und Datum sowie Uhrzeit auswählen · 24 Stunden</p>
           <div id="all-day-fields" class="hidden grid gap-4 sm:grid-cols-2">
             <label class="field-label" for="start-date">Erster Tag <span aria-hidden="true">*</span>
-              <input id="start-date" name="startDate" class="field-control mt-1.5" type="date" />
+              <input id="start-date" name="startDate" class="field-control picker-input mt-1.5" type="text" inputmode="numeric" autocomplete="off" placeholder="Datum auswählen" aria-describedby="all-day-format-hint" aria-label="Ersten Tag auswählen" />
             </label>
             <label class="field-label" for="end-date">Letzter Tag <span aria-hidden="true">*</span>
-              <input id="end-date" name="endDate" class="field-control mt-1.5" type="date" />
+              <input id="end-date" name="endDate" class="field-control picker-input mt-1.5" type="text" inputmode="numeric" autocomplete="off" placeholder="Datum auswählen" aria-describedby="all-day-format-hint" aria-label="Letzten Tag auswählen" />
             </label>
           </div>
+          <p id="all-day-format-hint" class="hidden -mt-2 text-xs font-medium text-slate-500">Antippen und den Tag im Kalender auswählen</p>
           <label class="field-label" for="reservation-notes">Notiz <span class="font-normal text-slate-400">(optional)</span>
             <textarea id="reservation-notes" name="notes" class="field-control mt-1.5 min-h-24 resize-y" maxlength="280" placeholder="z. B. Fahrt nach Oldenburg"></textarea>
           </label>

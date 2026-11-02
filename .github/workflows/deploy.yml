@@ -15,7 +15,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  quality:
+    name: Qualitätsprüfung
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@v6
+      - name: JavaScript-Syntax prüfen
+        run: |
+          node --check app.js
+          node --check config.js
+          node --check supabaseClient.js
+          node --check auth.js
+      - name: Kernlogik prüfen
+        run: node --test tests/*.test.js
+
   deploy:
+    needs: quality
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -25,10 +41,14 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Website-Dateien vorbereiten
+        run: |
+          mkdir -p _site
+          cp index.html app.js auth.js config.js supabaseClient.js style.css _site/
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: .
+          path: _site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

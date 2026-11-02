@@ -1,13 +1,13 @@
-const { isSupabaseConfigured, supabase: supabaseClient, configurationError } = window.FAMILY_GARAGE_BACKEND;
+const backend = window.FAMILY_GARAGE_BACKEND;
 
 const CARS = [
-  { id: "BMW 320d", short: "BMW", color: "#2563eb", soft: "#dbeafe", text: "#173d84" },
-  { id: "Nissan Townstar", short: "Nissan", color: "#0f9b78", soft: "#d1fae5", text: "#075e4c" },
-  { id: "Dethleffs Just 90", short: "Dethleffs", color: "#d97706", soft: "#fef3c7", text: "#8a4507" },
+  { id: "BMW 320d", short: "BMW", compact: "BMW", color: "#2563eb", soft: "#dbeafe", text: "#173d84" },
+  { id: "Nissan Townstar", short: "Nissan", compact: "NIS", color: "#0f9b78", soft: "#d1fae5", text: "#075e4c" },
+  { id: "Dethleffs Just 90", short: "Dethleffs", compact: "MOB", color: "#d97706", soft: "#fef3c7", text: "#8a4507" },
 ];
 const PEOPLE = ["Wilke", "Wolfgang", "Anja"];
-const LOCAL_STORAGE_KEY = "familiengarage-reservations-v1";
 const DE_LOCALE = "de-DE";
+const compactCalendarMedia = window.matchMedia("(max-width: 639px)");
 
 const $ = (selector) => document.querySelector(selector);
 const elements = {
@@ -16,7 +16,6 @@ const elements = {
   carFilter: $("#filter-car"),
   personFilter: $("#filter-person"),
   emptyState: $("#empty-state"),
-  setupNotice: $("#setup-notice"),
   syncStatus: $("#sync-status"),
   bookingDialog: $("#booking-dialog"),
   detailsDialog: $("#reservation-dialog"),
@@ -26,6 +25,8 @@ const elements = {
   allDay: $("#all-day"),
   timedFields: $("#timed-fields"),
   allDayFields: $("#all-day-fields"),
+  datetimeFormatHint: $("#datetime-format-hint"),
+  allDayFormatHint: $("#all-day-format-hint"),
   startDateTime: $("#start-datetime"),
   endDateTime: $("#end-datetime"),
   startDate: $("#start-date"),
@@ -38,6 +39,7 @@ const elements = {
   detailTime: $("#detail-time"),
   detailNotes: $("#detail-notes"),
   detailNotesGroup: $("#detail-notes-group"),
+  closeDetails: $("#close-details"),
   deleteButton: $("#delete-reservation"),
   toast: $("#toast"),
 };
@@ -45,13 +47,17 @@ const elements = {
 let reservations = [];
 let calendar;
 let selectedReservation = null;
-let unsubscribeChannel = null;
+let syncTimer = null;
+let loadInFlight = false;
 let toastTimer;
+let latestLoadRequest = 0;
+let reservationPickers = {};
 
 function initialize() {
   populateSelects();
   renderLegend();
   configureCalendar();
+  initializeReservationPickers();
   bindEvents();
   initializeData();
 }
@@ -77,6 +83,42 @@ function renderLegend() {
   );
 }
 
+function initializeReservationPickers() {
+  if (typeof window.flatpickr !== "function") return;
+
+  const sharedOptions = {
+    allowInput: false,
+    static: true,
+    disableMobile: true,
+    locale: window.flatpickr.l10ns.de,
+    onChange: () => validateReservationTiming(),
+  };
+  reservationPickers = {
+    startDateTime: window.flatpickr(elements.startDateTime, {
+      ...sharedOptions,
+      dateFormat: "d.m.Y, H:i",
+      enableTime: true,
+      minuteIncrement: 30,
+      time_24hr: true,
+    }),
+    endDateTime: window.flatpickr(elements.endDateTime, {
+      ...sharedOptions,
+      dateFormat: "d.m.Y, H:i",
+      enableTime: true,
+      minuteIncrement: 30,
+      time_24hr: true,
+    }),
+    startDate: window.flatpickr(elements.startDate, {
+      ...sharedOptions,
+      dateFormat: "d.m.Y",
+    }),
+    endDate: window.flatpickr(elements.endDate, {
+      ...sharedOptions,
+      dateFormat: "d.m.Y",
+    }),
+  };
+}
+
 function configureCalendar() {
   calendar = new FullCalendar.Calendar(elements.calendar, {
     locale: "de",
@@ -85,7 +127,7 @@ function configureCalendar() {
     headerToolbar: false,
     height: "auto",
     fixedWeekCount: false,
-    dayMaxEvents: false,
+    dayMaxEvents: compactCalendarMedia.matches ? 2 : false,
     nowIndicator: true,
     allDayText: "Ganztägig",
     buttonText: { today: "Heute" },
@@ -93,15 +135,31 @@ function configureCalendar() {
     views: {
       dayGridMonth: { dayMaxEventRows: false },
       timeGridWeek: { slotMinTime: "06:00:00", slotMaxTime: "23:00:00", slotDuration: "00:30:00" },
+      timeGridDay: { slotMinTime: "06:00:00", slotMaxTime: "23:00:00", slotDuration: "00:30:00" },
     },
     events: (info, successCallback) => successCallback(filteredCalendarEvents()),
     datesSet: updateCalendarTitle,
     dateClick: (info) => openBooking({ date: info.date }),
+    dayCellDidMount: (info) => {
+      if (!info.view.type.startsWith("dayGrid")) return;
+      const dayNumber = info.el.querySelector(".fc-daygrid-day-number");
+      if (!dayNumber) return;
+      dayNumber.tabIndex = 0;
+      dayNumber.setAttribute("role", "button");
+      dayNumber.setAttribute("aria-label", `Neue Reservierung für ${formatDate(info.date)}`);
+      dayNumber.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openBooking({ date: info.date });
+      });
+    },
     eventClick: (info) => openDetails(info.event.extendedProps.reservationId),
     eventContent: renderEventContent,
     eventDidMount: (info) => {
       const reservation = info.event.extendedProps.reservation;
-      info.el.title = `${reservation.car}: ${formatReservationRange(reservation)}${reservation.notes ? ` – ${reservation.notes}` : ""}`;
+      const label = `${reservation.car}, reserviert von ${reservation.person}, ${formatReservationRange(reservation)}.`;
+      info.el.title = `${label}${reservation.notes ? ` ${reservation.notes}` : ""}`;
+      info.el.setAttribute("aria-label", `${label} Details öffnen.`);
     },
   });
   calendar.render();
@@ -124,10 +182,11 @@ function bindEvents() {
 
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
-      const viewName = button.dataset.view;
+      const requestedView = button.dataset.view;
+      const viewName = requestedView === "timeGridWeek" && compactCalendarMedia.matches ? "timeGridDay" : requestedView;
       calendar.changeView(viewName);
       document.querySelectorAll("[data-view]").forEach((viewButton) => {
-        const active = viewButton.dataset.view === viewName;
+        const active = viewButton === button;
         viewButton.classList.toggle("is-active", active);
         viewButton.setAttribute("aria-pressed", String(active));
       });
@@ -137,6 +196,24 @@ function bindEvents() {
   [elements.carSelect, elements.startDateTime, elements.endDateTime, elements.startDate, elements.endDate].forEach((input) => {
     input.addEventListener("change", validateReservationTiming);
   });
+  [elements.startDateTime, elements.endDateTime].forEach((input) => {
+    input.addEventListener("blur", () => {
+      normalizeDateTimeInput(input);
+      validateReservationTiming();
+    });
+  });
+  [elements.startDate, elements.endDate].forEach((input) => {
+    input.addEventListener("blur", () => {
+      normalizeDateInput(input);
+      validateReservationTiming();
+    });
+  });
+
+  if (typeof compactCalendarMedia.addEventListener === "function") {
+    compactCalendarMedia.addEventListener("change", applyResponsiveCalendarLayout);
+  } else {
+    compactCalendarMedia.addListener(applyResponsiveCalendarLayout);
+  }
 
   [elements.bookingDialog, elements.detailsDialog].forEach((dialog) => {
     dialog.addEventListener("click", (event) => {
@@ -144,49 +221,64 @@ function bindEvents() {
     });
   });
 
-  window.addEventListener("beforeunload", () => {
-    if (unsubscribeChannel) supabaseClient.removeChannel(unsubscribeChannel);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && backend.hasSession()) loadReservations({ quiet: true });
   });
 }
 
 async function initializeData() {
-  if (isSupabaseConfigured) {
-    setSyncStatus("Verbindung wird hergestellt", "#f59e0b");
-    await loadReservations();
-    subscribeToChanges();
-  } else {
-    elements.setupNotice.classList.remove("hidden");
-    reservations = readLocalReservations();
-    setSyncStatus(configurationError || "Lokaler Testmodus", configurationError ? "#e11d48" : "#94a3b8");
-    refreshCalendar();
-  }
+  await window.FAMILY_GARAGE_AUTH.initialize(async () => {
+    const loaded = await loadReservations();
+    if (!loaded) return false;
+    window.clearInterval(syncTimer);
+    syncTimer = window.setInterval(() => {
+      if (!document.hidden && !loadInFlight) loadReservations({ quiet: true });
+    }, 5000);
+    return true;
+  }, clearPrivateView);
+}
+
+function clearPrivateView() {
+  latestLoadRequest += 1;
+  window.clearInterval(syncTimer);
+  syncTimer = null;
+  reservations = [];
+  selectedReservation = null;
+  elements.bookingDialog.close();
+  elements.detailsDialog.close();
+  elements.notes.value = '';
+  elements.detailNotes.textContent = '';
+  elements.detailTime.textContent = '';
+  elements.detailCar.textContent = '';
+  elements.detailHeading.textContent = '';
+  elements.calendar.removeAttribute('aria-busy');
+  Object.values(reservationPickers).forEach((picker) => picker.close());
+  refreshCalendar();
+  setSyncStatus('Bitte anmelden', '#64748b');
 }
 
 async function loadReservations({ quiet = false } = {}) {
+  const requestId = ++latestLoadRequest;
   if (!quiet) setSyncStatus("Kalender wird geladen", "#f59e0b");
-  const { data, error } = await supabaseClient
-    .from("reservations")
-    .select("id, car, person, start_time, end_time, notes, created_at")
-    .order("start_time", { ascending: true });
-
-  if (error) {
+  elements.calendar.setAttribute("aria-busy", "true");
+  loadInFlight = true;
+  try {
+    const { data, error } = await backend.listReservations();
+    if (requestId !== latestLoadRequest) return false;
+    if (error) throw error;
+    reservations = data || [];
+    setSyncStatus("Automatisch synchronisiert", "#16a34a");
+    refreshCalendar();
+    return true;
+  } catch (error) {
+    if (requestId !== latestLoadRequest) return false;
     setSyncStatus("Synchronisierung nicht verfügbar", "#e11d48");
-    showToast(`Daten konnten nicht geladen werden: ${error.message}`, "error");
-    return;
+    if (!quiet) showToast('Kalender konnte nicht geladen werden. Bitte erneut versuchen.', "error");
+    return false;
+  } finally {
+    loadInFlight = false;
+    if (requestId === latestLoadRequest) elements.calendar.removeAttribute("aria-busy");
   }
-  reservations = data || [];
-  setSyncStatus("Live synchronisiert", "#16a34a");
-  refreshCalendar();
-}
-
-function subscribeToChanges() {
-  unsubscribeChannel = supabaseClient
-    .channel("familiengarage-reservations")
-    .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, () => loadReservations({ quiet: true }))
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") setSyncStatus("Live synchronisiert", "#16a34a");
-      if (["CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) setSyncStatus("Synchronisierung unterbrochen", "#e11d48");
-    });
 }
 
 function filteredCalendarEvents() {
@@ -202,13 +294,13 @@ function toCalendarEvent(reservation) {
   const allDay = isAllDayReservation(reservation);
   return {
     id: reservation.id,
-    title: reservation.person,
-    start: allDay ? dateKey(new Date(reservation.start_time)) : reservation.start_time,
-    end: allDay ? dateKey(new Date(reservation.end_time)) : reservation.end_time,
+    title: `${car.short} · ${reservation.person}`,
+    start: allDay ? dateKeyInBerlin(new Date(reservation.start_time)) : reservation.start_time,
+    end: allDay ? dateKeyInBerlin(new Date(reservation.end_time)) : reservation.end_time,
     allDay,
-    backgroundColor: car.color,
+    backgroundColor: car.soft,
     borderColor: car.color,
-    textColor: "#ffffff",
+    textColor: car.text,
     classNames: ["vehicle-event"],
     extendedProps: { reservationId: reservation.id, reservation },
   };
@@ -217,22 +309,32 @@ function toCalendarEvent(reservation) {
 function renderEventContent(info) {
   const reservation = info.event.extendedProps.reservation;
   const car = carById(reservation.car);
+  const compact = compactCalendarMedia.matches;
   const wrapper = document.createElement("div");
   const meta = document.createElement("span");
+  const time = document.createElement("span");
   const person = document.createElement("span");
 
-  wrapper.className = "reservation-event-content";
+  wrapper.className = `reservation-event-content${compact ? " is-compact" : ""}`;
   meta.className = "event-meta";
+  time.className = "event-time";
   person.className = "event-person";
-  meta.textContent = info.event.allDay ? car.short : `${car.short} · ${info.timeText}`;
-  person.textContent = reservation.person;
-  wrapper.append(meta, person);
+  meta.textContent = compact ? car.compact : (info.event.allDay ? car.short : `${car.short} · ${info.timeText}`);
+  time.textContent = info.event.allDay ? "Tag" : info.timeText;
+  person.textContent = compact ? compactPersonName(reservation.person) : reservation.person;
+  wrapper.append(meta, time, person);
   return { domNodes: [wrapper] };
 }
 
 function refreshCalendar() {
   calendar.refetchEvents();
   elements.emptyState.classList.toggle("hidden", filteredCalendarEvents().length !== 0);
+}
+
+function applyResponsiveCalendarLayout() {
+  calendar.setOption("dayMaxEvents", compactCalendarMedia.matches ? 2 : false);
+  if (compactCalendarMedia.matches && calendar.view.type === "timeGridWeek") calendar.changeView("timeGridDay");
+  refreshCalendar();
 }
 
 function updateCalendarTitle(info) {
@@ -250,10 +352,10 @@ function openBooking({ date } = {}) {
     roundToNextHalfHour(start);
   }
   const end = new Date(start.getTime() + 60 * 60 * 1000);
-  elements.startDateTime.value = datetimeLocalValue(start);
-  elements.endDateTime.value = datetimeLocalValue(end);
-  elements.startDate.value = dateKey(start);
-  elements.endDate.value = dateKey(start);
+  setPickerDate("startDateTime", start, formatDateTimeInput);
+  setPickerDate("endDateTime", end, formatDateTimeInput);
+  setPickerDate("startDate", start, formatDateInput);
+  setPickerDate("endDate", start, formatDateInput);
   updateDateInputMode();
   elements.bookingDialog.showModal();
   window.setTimeout(() => elements.carSelect.focus(), 20);
@@ -268,13 +370,26 @@ function resetBookingForm() {
   elements.bookingForm.reset();
   elements.allDay.checked = false;
   elements.saveButton.disabled = false;
+  [elements.startDateTime, elements.endDateTime, elements.startDate, elements.endDate].forEach((input) => input.setAttribute("aria-invalid", "false"));
   clearFormMessage();
+}
+
+function setPickerDate(pickerName, date, fallbackFormatter) {
+  const picker = reservationPickers[pickerName];
+  if (picker) {
+    picker.setDate(date, false);
+    return;
+  }
+  const input = elements[pickerName];
+  input.value = fallbackFormatter(date);
 }
 
 function updateDateInputMode() {
   const isAllDay = elements.allDay.checked;
   elements.timedFields.classList.toggle("hidden", isAllDay);
   elements.allDayFields.classList.toggle("hidden", !isAllDay);
+  elements.datetimeFormatHint.classList.toggle("hidden", isAllDay);
+  elements.allDayFormatHint.classList.toggle("hidden", !isAllDay);
   elements.startDateTime.required = !isAllDay;
   elements.endDateTime.required = !isAllDay;
   elements.startDate.required = isAllDay;
@@ -293,8 +408,8 @@ function reservationFromForm() {
     end = localDateAtStart(elements.endDate.value);
     if (end) end.setDate(end.getDate() + 1);
   } else {
-    start = elements.startDateTime.value ? new Date(elements.startDateTime.value) : null;
-    end = elements.endDateTime.value ? new Date(elements.endDateTime.value) : null;
+    start = parseGermanDateTime(elements.startDateTime.value);
+    end = parseGermanDateTime(elements.endDateTime.value);
   }
 
   return {
@@ -302,14 +417,21 @@ function reservationFromForm() {
     person,
     start_time: start?.toISOString(),
     end_time: end?.toISOString(),
+    is_all_day: elements.allDay.checked,
     notes: elements.notes.value.trim(),
   };
 }
 
 function validateReservationTiming() {
   clearFormMessage();
+  setTimingValidity(false);
   const draft = reservationFromForm();
-  if (!draft.car || !draft.start_time || !draft.end_time || new Date(draft.end_time) <= new Date(draft.start_time)) return false;
+  if (!draft.car || !draft.start_time || !draft.end_time) return false;
+  if (new Date(draft.end_time) <= new Date(draft.start_time)) {
+    setTimingValidity(true);
+    showFormMessage("Das Ende muss nach dem Beginn liegen.", "error");
+    return false;
+  }
   const collision = findConflict(draft);
   if (collision) {
     showFormMessage(`Nicht verfügbar: ${draft.car} ist in diesem Zeitraum bereits von ${collision.person} reserviert.`, "error");
@@ -322,7 +444,8 @@ async function saveReservation(event) {
   event.preventDefault();
   const draft = reservationFromForm();
   if (!draft.car || !draft.person || !draft.start_time || !draft.end_time) {
-    showFormMessage("Bitte fülle Fahrzeug, Person sowie Beginn und Ende aus.", "error");
+    const formatHint = elements.allDay.checked ? "TT.MM.JJJJ" : "TT.MM.JJJJ, HH:MM";
+    showFormMessage(`Bitte fülle Fahrzeug, Person sowie Beginn und Ende im Format ${formatHint} aus.`, "error");
     return;
   }
   if (new Date(draft.end_time) <= new Date(draft.start_time)) {
@@ -335,28 +458,16 @@ async function saveReservation(event) {
   elements.saveButton.textContent = "Wird gespeichert …";
 
   try {
-    if (isSupabaseConfigured) {
-      const remoteConflict = await findRemoteConflict(draft);
-      if (remoteConflict) {
-        showFormMessage(`Nicht verfügbar: ${draft.car} wurde gerade von ${remoteConflict.person} reserviert.`, "error");
+    const { error } = await backend.createReservation(draft);
+    if (error) {
+      if (error.code === "23P01") {
+        showFormMessage("Diese Zeit wurde gerade von einer anderen Buchung belegt. Bitte wähle einen anderen Zeitraum.", "error");
+        await loadReservations({ quiet: true });
         return;
       }
-      const { error } = await supabaseClient.from("reservations").insert(draft);
-      if (error) {
-        if (error.code === "23P01") {
-          showFormMessage("Diese Zeit wurde gerade von einer anderen Buchung belegt. Bitte wähle einen anderen Zeitraum.", "error");
-          await loadReservations({ quiet: true });
-          return;
-        }
-        throw error;
-      }
-      await loadReservations({ quiet: true });
-    } else {
-      const saved = { ...draft, id: crypto.randomUUID(), created_at: new Date().toISOString() };
-      reservations = [...reservations, saved].sort(sortByStart);
-      writeLocalReservations(reservations);
-      refreshCalendar();
+      throw error;
     }
+    await loadReservations({ quiet: true });
     closeBooking();
     showToast("Reservierung gespeichert.");
   } catch (error) {
@@ -377,18 +488,6 @@ function findConflict(candidate) {
   );
 }
 
-async function findRemoteConflict(candidate) {
-  const { data, error } = await supabaseClient
-    .from("reservations")
-    .select("id, person")
-    .eq("car", candidate.car)
-    .lt("start_time", candidate.end_time)
-    .gt("end_time", candidate.start_time)
-    .limit(1);
-  if (error) throw error;
-  return data?.[0] || null;
-}
-
 function openDetails(reservationId) {
   selectedReservation = reservations.find((reservation) => reservation.id === reservationId);
   if (!selectedReservation) return;
@@ -398,7 +497,7 @@ function openDetails(reservationId) {
   elements.detailNotes.textContent = selectedReservation.notes || "Keine Notiz hinterlegt.";
   elements.detailNotesGroup.classList.toggle("opacity-60", !selectedReservation.notes);
   elements.detailsDialog.showModal();
-  window.setTimeout(() => elements.deleteButton.focus(), 20);
+  window.setTimeout(() => elements.closeDetails.focus(), 20);
 }
 
 function closeDetails() {
@@ -415,15 +514,9 @@ async function deleteReservation() {
   elements.deleteButton.disabled = true;
   elements.deleteButton.textContent = "Wird gelöscht …";
   try {
-    if (isSupabaseConfigured) {
-      const { error } = await supabaseClient.from("reservations").delete().eq("id", reservation.id);
-      if (error) throw error;
-      await loadReservations({ quiet: true });
-    } else {
-      reservations = reservations.filter((item) => item.id !== reservation.id);
-      writeLocalReservations(reservations);
-      refreshCalendar();
-    }
+    const { error } = await backend.deleteReservation(reservation.id);
+    if (error) throw error;
+    await loadReservations({ quiet: true });
     closeDetails();
     showToast("Reservierung gelöscht.");
   } catch (error) {
@@ -440,8 +533,8 @@ function formatReservationRange(reservation) {
   if (isAllDayReservation(reservation)) {
     const lastDay = new Date(end);
     lastDay.setDate(lastDay.getDate() - 1);
-    const startText = formatDate(start);
-    const endText = formatDate(lastDay);
+    const startText = formatDateInBerlin(start);
+    const endText = formatDateInBerlin(lastDay);
     return startText === endText ? `Ganztägig · ${startText}` : `Ganztägig · ${startText} – ${endText}`;
   }
   const sameDay = dateKey(start) === dateKey(end);
@@ -454,11 +547,71 @@ function formatDate(date) {
   return new Intl.DateTimeFormat(DE_LOCALE, { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
 }
 
+function formatDateInBerlin(date) {
+  return new Intl.DateTimeFormat(DE_LOCALE, {
+    timeZone: "Europe/Berlin",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function formatTime(date) {
   return new Intl.DateTimeFormat(DE_LOCALE, { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 
+function formatDateInput(date) {
+  return formatDate(date);
+}
+
+function formatDateTimeInput(date) {
+  return `${formatDateInput(date)}, ${formatTime(date)}`;
+}
+
+function parseGermanDate(value) {
+  const match = value.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!match) return null;
+  const [, dayText, monthText, yearText] = match;
+  const day = Number(dayText);
+  const month = Number(monthText);
+  const year = Number(yearText);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+}
+
+function parseGermanDateTime(value) {
+  const match = value.trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})[\s,]+(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const [, dayText, monthText, yearText, hourText, minuteText] = match;
+  const day = Number(dayText);
+  const month = Number(monthText);
+  const year = Number(yearText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const date = new Date(year, month - 1, day, hour, minute, 0, 0);
+  const isValid = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day && date.getHours() === hour && date.getMinutes() === minute;
+  return isValid ? date : null;
+}
+
+function normalizeDateInput(input) {
+  const date = parseGermanDate(input.value);
+  if (date) input.value = formatDateInput(date);
+}
+
+function normalizeDateTimeInput(input) {
+  const date = parseGermanDateTime(input.value);
+  if (date) input.value = formatDateTimeInput(date);
+}
+
+function setTimingValidity(invalid) {
+  const activeInputs = elements.allDay.checked
+    ? [elements.startDate, elements.endDate]
+    : [elements.startDateTime, elements.endDateTime];
+  activeInputs.forEach((input) => input.setAttribute("aria-invalid", String(invalid)));
+}
+
 function isAllDayReservation(reservation) {
+  if (typeof reservation.is_all_day === "boolean") return reservation.is_all_day;
   const start = new Date(reservation.start_time);
   const end = new Date(reservation.end_time);
   return start.getHours() === 0 && start.getMinutes() === 0 && end.getHours() === 0 && end.getMinutes() === 0;
@@ -473,10 +626,19 @@ function dateKey(date) {
   return datetimeLocalValue(date).slice(0, 10);
 }
 
+function dateKeyInBerlin(date) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function localDateAtStart(value) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
+  return parseGermanDate(value);
 }
 
 function roundToNextHalfHour(date) {
@@ -494,21 +656,8 @@ function carById(id) {
   return CARS.find((car) => car.id === id) || CARS[0];
 }
 
-function readLocalReservations() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY));
-    return Array.isArray(stored) ? stored.sort(sortByStart) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalReservations(items) {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
-}
-
-function sortByStart(first, second) {
-  return new Date(first.start_time) - new Date(second.start_time);
+function compactPersonName(person) {
+  return { Wilke: "Wil.", Wolfgang: "Wolf.", Anja: "Anja" }[person] || person.slice(0, 4);
 }
 
 function showFormMessage(message, type) {
