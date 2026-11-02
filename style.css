@@ -196,6 +196,11 @@ button:disabled {
 .fc .fc-timegrid-event .fc-event-title { font-size: .72rem; font-weight: 700; }
 
 @media (max-width: 639px) {
+  .booking-dialog .flatpickr-calendar.static { width: 100%; max-width: 100%; }
+  .booking-dialog .flatpickr-innerContainer,
+  .booking-dialog .flatpickr-rContainer,
+  .booking-dialog .flatpickr-days,
+  .booking-dialog .dayContainer { width: 100%; min-width: 0; max-width: 100%; }
   .button-label-wide { display: none; }
   .button-label-compact { display: inline; }
   .week-label-wide { display: none; }
